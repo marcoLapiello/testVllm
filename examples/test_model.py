@@ -76,49 +76,54 @@ def main():
     # See MODEL_CONFIGS.md for ready-to-use configurations
     # ============================================================================
     
-    # Default: Facebook OPT-125M (fast testing)
-    # For better quality, use: mistralai/Mistral-7B-Instruct-v0.3
+    # Testing: Qwen3-8B-AWQ (Quantized 4-bit, faster & less VRAM)
     model_config = {
-        'name': "mistralai/Mistral-7B-Instruct-v0.3",
+        'name': "Qwen/Qwen3-8B-AWQ",
         'info': {
-            'Size': '7 Billion parameters',
-            'Precision': 'FP16 (full precision)',
-            'Expected VRAM': '~14-15 GB',
-            'Context length': '32,768 tokens (32K)',
-            'License': 'Apache 2.0 (fully open)',
+            'Size': '8.2B parameters (AWQ 4-bit quantized)',
+            'Precision': 'AWQ 4-bit',
+            'Expected VRAM': '~4-5 GB (vs 16GB for full precision)',
+            'Context length': '32,768 tokens (32K native, 131K with YaRN)',
+            'License': 'Apache 2.0',
+            'Features': 'Thinking mode, reasoning capabilities, memory efficient',
         }
     }
     
     # vLLM model loading parameters
     vllm_params = {
-        'max_model_len': 4096,           # Context window to use
+        'max_model_len': 8192,           # Context window to use (8K for testing)
         'gpu_memory_utilization': 0.9,   # GPU memory usage (0.0 to 1.0)
         'tensor_parallel_size': 1,       # Number of GPUs for tensor parallelism
+        'quantization': 'awq',           # AWQ quantization method
+        # Note: To enable thinking mode parsing, add: 'reasoning_parser': 'qwen3'
     }
     
     # Sampling parameters for generation
+    # Qwen3 recommendation for non-thinking mode: temp=0.7, top_p=0.8
+    # For thinking mode: temp=0.6, top_p=0.95
     sampling_config = {
-        'temperature': 0.8,              # Randomness (0.0 = deterministic, 1.0+ = creative)
-        'top_p': 0.95,                   # Nucleus sampling
+        'temperature': 0.7,              # Randomness (non-thinking mode)
+        'top_p': 0.8,                    # Nucleus sampling (non-thinking mode)
         'max_tokens': 500,               # Maximum tokens to generate
+        'presence_penalty': 1.5,         # Recommended for quantized models
     }
     
     # Test cases to run
     test_cases = [
         {
-            "prompt": "Explain quantum computing in simple terms that a 10-year-old could understand.",
+            "prompt": "/no_think Explain quantum computing in simple terms that a 10-year-old could understand.",
             "description": "Science explanation"
         },
         {
-            "prompt": "Write a Python function to calculate the Fibonacci sequence using dynamic programming.",
+            "prompt": "/no_think Write a Python function to calculate the Fibonacci sequence using dynamic programming.",
             "description": "Code generation"
         },
         {
-            "prompt": "What are the key differences between machine learning and deep learning?",
+            "prompt": "/no_think What are the key differences between machine learning and deep learning?",
             "description": "Technical comparison"
         },
         {
-            "prompt": "Tell me a creative short story about a robot learning to paint.",
+            "prompt": "/no_think Tell me a creative short story about a robot learning to paint.",
             "description": "Creative writing"
         }
     ]

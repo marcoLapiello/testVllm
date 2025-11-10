@@ -51,7 +51,117 @@ model_config = {
         'License': 'Apache 2.0 (fully open)',
     }
 }
+
+vllm_params = {
+    'max_model_len': 4096,
+    'gpu_memory_utilization': 0.9,
+    'tensor_parallel_size': 1,
+}
+
+sampling_config = {
+    'temperature': 0.7,
+    'top_p': 0.9,
+    'max_tokens': 300,
+}
 ```
+
+---
+
+### Qwen3-8B (Latest with Reasoning) 🧠
+
+**Status:** ⬇️ Will download automatically on first run (~16 GB)
+
+Latest Qwen model with thinking/reasoning capabilities!
+
+```python
+model_config = {
+    'name': "Qwen/Qwen3-8B",
+    'info': {
+        'Size': '8.2 Billion parameters',
+        'Precision': 'BF16 (full precision)',
+        'Expected VRAM': '~16 GB',
+        'Context length': '32,768 tokens (32K native, 131K with YaRN)',
+        'License': 'Apache 2.0',
+        'Features': 'Thinking mode, reasoning capabilities',
+    }
+}
+
+vllm_params = {
+    'max_model_len': 8192,           # Context window to use (8K for testing)
+    'gpu_memory_utilization': 0.9,   # GPU memory usage (0.0 to 1.0)
+    'tensor_parallel_size': 1,       # Number of GPUs for tensor parallelism
+    # Optional: Add 'reasoning_parser': 'qwen3' to parse thinking tokens
+}
+
+# Non-thinking mode (default - no reasoning_parser)
+sampling_config = {
+    'temperature': 0.7,              # Randomness
+    'top_p': 0.8,                    # Nucleus sampling
+    'max_tokens': 500,               # Maximum tokens to generate
+}
+
+# Alternative: Thinking mode (add reasoning_parser to vllm_params)
+# sampling_config = {
+#     'temperature': 0.6,            # Lower for better reasoning
+#     'top_p': 0.95,
+#     'max_tokens': 500,
+# }
+```
+
+**Note:** Qwen3 has thinking mode enabled by default. The model may generate `<think>...</think>` tags. To parse these properly, add `'reasoning_parser': 'qwen3'` to `vllm_params`.
+
+---
+
+### Qwen3-8B-AWQ (Quantized - Memory Efficient) 💾
+
+**Status:** ⬇️ Will download automatically on first run (~4 GB)
+
+Official AWQ 4-bit quantized version - 75% less VRAM!
+
+```python
+model_config = {
+    'name': "Qwen/Qwen3-8B-AWQ",
+    'info': {
+        'Size': '8.2B parameters (AWQ 4-bit quantized)',
+        'Precision': 'AWQ 4-bit',
+        'Expected VRAM': '~4-5 GB (vs 16GB for full precision)',
+        'Context length': '32,768 tokens (32K native, 131K with YaRN)',
+        'License': 'Apache 2.0',
+        'Features': 'Thinking mode, reasoning, memory efficient',
+        'Quality': 'Slight reduction vs full precision, still excellent',
+    }
+}
+
+vllm_params = {
+    'max_model_len': 8192,           # Context window to use
+    'gpu_memory_utilization': 0.9,   # GPU memory usage
+    'tensor_parallel_size': 1,       # Number of GPUs
+    'quantization': 'awq',           # AWQ quantization method
+    # Optional: Add 'reasoning_parser': 'qwen3' to parse thinking tokens
+}
+
+# Non-thinking mode (default)
+sampling_config = {
+    'temperature': 0.7,              # Randomness
+    'top_p': 0.8,                    # Nucleus sampling
+    'max_tokens': 500,               # Maximum tokens
+    'presence_penalty': 1.5,         # Recommended for quantized models
+}
+
+# Alternative: Thinking mode (add reasoning_parser to vllm_params)
+# sampling_config = {
+#     'temperature': 0.6,
+#     'top_p': 0.95,
+#     'max_tokens': 500,
+#     'presence_penalty': 1.5,
+# }
+```
+
+**Benefits of AWQ Quantization:**
+- ✅ **75% less VRAM** (~4GB vs ~16GB)
+- ✅ **Faster inference** (less data to move)
+- ✅ **ROCm compatible** (works with vLLM)
+- ⚠️ **Slight quality reduction** (but still very good)
 
 ---
 
@@ -63,6 +173,7 @@ model_config = {
 - **gpu_memory_utilization**: Fraction of GPU memory to use (0.0-1.0)
 - **tensor_parallel_size**: Number of GPUs for tensor parallelism
 - **quantization**: Quantization method ('awq', 'gptq', etc.)
+- **reasoning_parser**: Parser for reasoning models ('qwen3', 'deepseek_r1', etc.)
 
 ### sampling_config
 
