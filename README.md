@@ -20,8 +20,13 @@ testVllm/
 ├── docker-compose.yml       # Docker container configuration
 ├── models/                  # Model storage (created automatically)
 ├── examples/               # Example scripts
+│   ├── test_model.py         # ⭐ Unified model testing script
+│   ├── MODEL_CONFIGS.md      # Model configuration examples
 │   ├── simple_inference.py    # Basic text generation
 │   ├── batch_inference.py     # Batch processing example
+│   ├── test_llama32_3b.py    # [DEPRECATED - use test_model.py]
+│   ├── test_mistral_7b.py    # [DEPRECATED - use test_model.py]
+│   ├── test_quantized.py     # [DEPRECATED - use test_model.py]
 │   └── api_server.py         # API server instructions
 └── scripts/                # Helper scripts
     ├── install_docker.sh     # Docker installation
@@ -53,13 +58,19 @@ sudo docker exec -it vllm-rocm bash
 Inside the container:
 
 ```bash
-# Simple inference example
 cd /app/examples
+
+# Unified model testing (recommended)
+python test_model.py
+
+# Simple inference example
 python simple_inference.py
 
 # Batch inference
 python batch_inference.py
 ```
+
+**Pro Tip:** Check `MODEL_CONFIGS.md` for ready-to-use configurations for different models!
 
 ### 4. Run as API Server
 
@@ -127,9 +138,33 @@ python -c "from huggingface_hub import snapshot_download; snapshot_download('fac
 "mistralai/Mistral-7B-v0.1"  # 7B parameters
 ```
 
-## 🎯 Example Code
+## 🎯 Testing Different Models
 
-### Basic Inference
+### Quick Start with test_model.py
+
+The easiest way to test models is using the unified testing script:
+
+```bash
+cd examples
+python test_model.py
+```
+
+To test a different model:
+
+1. Open `test_model.py`
+2. Find the **CONFIGURATION SECTION** in `main()`
+3. Replace with a configuration from `MODEL_CONFIGS.md`
+4. Run the script
+
+**Example configurations available:**
+- Llama 3.2 3B Instruct (default)
+- Mistral 7B Instruct
+- Facebook OPT models (125M - 1.3B)
+- Quantized models (AWQ/GPTQ)
+
+See `MODEL_CONFIGS.md` for complete configurations with VRAM requirements!
+
+### Basic Inference Code
 
 ```python
 from vllm import LLM, SamplingParams
