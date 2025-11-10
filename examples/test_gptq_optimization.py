@@ -3,12 +3,26 @@ GPTQ Optimization Test Script for ROCm
 Tests different GPTQ configurations to find optimal performance
 """
 
-from vllm import LLM, SamplingParams
+import warnings
+import logging
+
+# Suppress specific vLLM deprecation warnings that pollute output
+warnings.filterwarnings('ignore', message='.*Processor has been moved.*')
+# Set vLLM logger to ERROR level to suppress WARNING messages during generation
+logging.getLogger('vllm').setLevel(logging.ERROR)
+
+from vllm import SamplingParams
+from vllm.engine.arg_utils import AsyncEngineArgs
+from vllm.sampling_params import RequestOutputKind
+from vllm.v1.engine.async_llm import AsyncLLM
+import asyncio
 import time
 import os
+import sys
+import contextlib
 
 
-def test_gptq_config(config_name: str, env_vars: dict, vllm_params: dict):
+async def test_gptq_config(config_name: str, env_vars: dict, vllm_params: dict):
     """Test a specific GPTQ configuration"""
     print("\n" + "="*80)
     print(f"Testing Configuration: {config_name}")
@@ -22,29 +36,79 @@ def test_gptq_config(config_name: str, env_vars: dict, vllm_params: dict):
     print("\nLoading model...")
     start_load = time.time()
     
+    engine = None
     try:
-        llm = LLM(model="kaitchup/Qwen3-8B-autoround-4bit-gptq", **vllm_params)
+        # Create AsyncLLM engine
+        engine_args = AsyncEngineArgs(
+            model="kaitchup/Qwen3-8B-autoround-4bit-gptq",
+            **vllm_params
+        )
+        engine = AsyncLLM.from_engine_args(engine_args)
         load_time = time.time() - start_load
         print(f"✅ Loaded in {load_time:.2f}s")
         
-        # Quick inference test
+        # Quick inference test with streaming
         sampling_params = SamplingParams(
             temperature=0.7,
             top_p=0.8,
-            max_tokens=200
+            max_tokens=200,
+            output_kind=RequestOutputKind.DELTA,  # Get only new tokens each iteration
         )
         
         prompt = "Explain in one paragraph what quantum computing is."
+        request_id = f"{config_name}-test"
         
         print("\nRunning inference test...")
+        print(f"\n💬 Prompt: {prompt}")
+        print(f"🤖 Response: ", end='', flush=True)
+        print()  # Add newline before any warnings/response
+        
         start_gen = time.time()
-        outputs = llm.generate([prompt], sampling_params)
+        
+        # Stream tokens using AsyncLLM
+        num_tokens = 0
+
+        # Temporarily suppress vLLM warnings that may be emitted to stderr
+        # (these can interleave with the streamed response). We raise the
+        # vLLM logger level and redirect stderr to /dev/null only for the
+        # duration of the async generation loop, then restore settings.
+        vllm_logger = logging.getLogger("vllm")
+        async_logger = logging.getLogger("vllm.v1.engine.async_llm")
+        prev_vllm_level = vllm_logger.level
+        prev_async_level = async_logger.level
+        vllm_logger.setLevel(logging.ERROR)
+        async_logger.setLevel(logging.ERROR)
+
+        devnull = open(os.devnull, "w")
+        try:
+            with contextlib.redirect_stderr(devnull):
+                async for output in engine.generate(
+                    request_id=request_id,
+                    prompt=prompt,
+                    sampling_params=sampling_params,
+                ):
+                    # In DELTA mode, completion.text contains only new tokens
+                    for completion in output.outputs:
+                        new_text = completion.text
+                        if new_text:
+                            print(new_text, end="", flush=True)
+
+                        # In DELTA mode, token_ids contains only new tokens per iteration
+                        if hasattr(completion, "token_ids") and completion.token_ids:
+                            num_tokens += len(completion.token_ids)
+
+                    if output.finished:
+                        break
+        finally:
+            devnull.close()
+            # restore logger levels
+            vllm_logger.setLevel(prev_vllm_level)
+            async_logger.setLevel(prev_async_level)
+        
         gen_time = time.time() - start_gen
+        speed = num_tokens / gen_time if gen_time > 0 else 0
         
-        num_tokens = len(outputs[0].outputs[0].token_ids)
-        speed = num_tokens / gen_time
-        
-        print(f"\n📊 Results:")
+        print("\n\n📊 Results:")
         print(f"  Generation time: {gen_time:.2f}s")
         print(f"  Tokens generated: {num_tokens}")
         print(f"  Speed: {speed:.2f} tokens/sec")
@@ -53,17 +117,20 @@ def test_gptq_config(config_name: str, env_vars: dict, vllm_params: dict):
         
     except Exception as e:
         print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
         return 0
     finally:
         # Clean up
-        del llm
+        if engine:
+            engine.shutdown()
         import gc
         import torch
         gc.collect()
         torch.cuda.empty_cache()
 
 
-def main():
+async def main():
     print("="*80)
     print("🔬 GPTQ OPTIMIZATION TEST FOR ROCM")
     print("="*80)
@@ -74,7 +141,7 @@ def main():
     
     # Test 1: Default configuration (with torch.compile)
     print("\n" + "🔹"*40)
-    results['default_compiled'] = test_gptq_config(
+    results['default_compiled'] = await test_gptq_config(
         "Default (Compiled)",
         env_vars={},
         vllm_params={
@@ -85,9 +152,9 @@ def main():
         }
     )
     
-    # Test 2: Larger batch size
+    """# Test 2: Larger batch size
     print("\n" + "🔹"*40)
-    results['larger_batch'] = test_gptq_config(
+    results['larger_batch'] = await test_gptq_config(
         "Larger Batch Size",
         env_vars={},
         vllm_params={
@@ -101,7 +168,7 @@ def main():
     
     # Test 3: Disable torch compile
     print("\n" + "🔹"*40)
-    results['no_compile'] = test_gptq_config(
+    results['no_compile'] = await test_gptq_config(
         "Disable Torch Compile",
         env_vars={'VLLM_TORCH_COMPILE_LEVEL': '0'},
         vllm_params={
@@ -111,7 +178,7 @@ def main():
             'quantization': 'gptq',
             'enforce_eager': True,
         }
-    )
+    )"""
     
     # Summary
     print("\n" + "="*80)
@@ -150,4 +217,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
