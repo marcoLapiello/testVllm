@@ -20,7 +20,7 @@ def main():
     sampling_params = SamplingParams(
         temperature=0.7,
         top_p=0.9,
-        max_tokens=50,
+        max_tokens=200,
     )
     
     # Create a larger batch of prompts
