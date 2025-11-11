@@ -38,6 +38,7 @@ models/
 huggingface_cache/
 
 # IDE
+.github/
 .vscode/
 .idea/
 *.swp
