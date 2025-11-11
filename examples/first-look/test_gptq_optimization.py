@@ -38,9 +38,9 @@ async def test_gptq_config(config_name: str, env_vars: dict, vllm_params: dict):
     
     engine = None
     try:
-        # Create AsyncLLM engine
+        # Create AsyncLLM engine with REAL GPTQ model (not compressed-tensors)
         engine_args = AsyncEngineArgs(
-            model="kaitchup/Qwen3-8B-autoround-4bit-gptq",
+            model="btbtyler09/Qwen3-Coder-30B-A3B-Instruct-gptq-4bit",
             **vllm_params
         )
         engine = AsyncLLM.from_engine_args(engine_args)
@@ -55,7 +55,7 @@ async def test_gptq_config(config_name: str, env_vars: dict, vllm_params: dict):
             output_kind=RequestOutputKind.DELTA,  # Get only new tokens each iteration
         )
         
-        prompt = "Explain in one paragraph what quantum computing is."
+        prompt = "Write a Python function to calculate the Fibonacci sequence using dynamic programming."
         request_id = f"{config_name}-test"
         
         print("\nRunning inference test...")
@@ -139,46 +139,45 @@ async def main():
     
     results = {}
     
-    # Test 1: Default configuration (with torch.compile)
+    # Test 1: GPTQ Marlin kernel (recommended, faster and more stable)
     print("\n" + "🔹"*40)
-    results['default_compiled'] = await test_gptq_config(
-        "Default (Compiled)",
+    results['gptq_marlin'] = await test_gptq_config(
+        "GPTQ Marlin Kernel",
         env_vars={},
         vllm_params={
             'max_model_len': 8192,
-            'gpu_memory_utilization': 0.9,
+            'gpu_memory_utilization': 0.95,
             'tensor_parallel_size': 1,
-            'quantization': 'gptq',
+            'quantization': 'gptq_marlin',  # Use optimized Marlin kernel
         }
     )
     
-    """# Test 2: Larger batch size
+    # Test 2: Default GPTQ kernel (for comparison - has bugs warning)
     print("\n" + "🔹"*40)
-    results['larger_batch'] = await test_gptq_config(
-        "Larger Batch Size",
+    results['gptq_default'] = await test_gptq_config(
+        "GPTQ Default Kernel",
+        env_vars={},
+        vllm_params={
+            'max_model_len': 8192,
+            'gpu_memory_utilization': 0.95,
+            'tensor_parallel_size': 1,
+            # Don't specify quantization - uses default gptq_gemm (buggy)
+        }
+    )
+    
+    # Test 3: GPTQ Marlin with larger batch
+    print("\n" + "🔹"*40)
+    results['marlin_large_batch'] = await test_gptq_config(
+        "Marlin + Larger Batch",
         env_vars={},
         vllm_params={
             'max_model_len': 8192,
             'gpu_memory_utilization': 0.9,
             'tensor_parallel_size': 1,
-            'quantization': 'gptq',
+            'quantization': 'gptq_marlin',
             'max_num_batched_tokens': 16384,  # Double the default
         }
     )
-    
-    # Test 3: Disable torch compile
-    print("\n" + "🔹"*40)
-    results['no_compile'] = await test_gptq_config(
-        "Disable Torch Compile",
-        env_vars={'VLLM_TORCH_COMPILE_LEVEL': '0'},
-        vllm_params={
-            'max_model_len': 8192,
-            'gpu_memory_utilization': 0.9,
-            'tensor_parallel_size': 1,
-            'quantization': 'gptq',
-            'enforce_eager': True,
-        }
-    )"""
     
     # Summary
     print("\n" + "="*80)
