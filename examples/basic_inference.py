@@ -23,17 +23,14 @@ def main():
     # These are the text snippets the model will complete
     # Think of them as "fill in the blank" exercises
     prompts = [
-        "Hello, my name is",
-        "The president of the United States is",
-        "The capital of France is",
-        "The future of AI is",
+        "Write a comprehensive essay about the impact of artificial intelligence on modern society, covering both the benefits (such as automation, healthcare improvements, and scientific research) and the potential risks (including job displacement, privacy concerns, and ethical dilemmas). Discuss how society should balance innovation with regulation:",
     ]
     
     print("=" * 70)
     print("vLLM Basic Inference Example")
     print("=" * 70)
     print(f"\nPrompts to complete: {len(prompts)}")
-    print("Model: facebook/opt-125m (125 million parameters)")
+    print("Model: mistralai/Mistral-7B-Instruct-v0.3 (7B instruction-tuned)")
     print()
     
     # ========================================
@@ -41,9 +38,9 @@ def main():
     # ========================================
     # These control how the model generates text
     sampling_params = SamplingParams(
-        temperature=0.8,  # Controls randomness (0.0 = deterministic, 1.0+ = creative)
+        temperature=0.7,  # Controls randomness (0.0 = deterministic, 1.0+ = creative)
         top_p=0.95,       # Nucleus sampling - consider top 95% probability mass
-        max_tokens=50,    # Maximum length of generated text
+        max_tokens=400,   # Maximum length of generated text
     )
     
     print("Sampling Parameters:")
@@ -58,7 +55,8 @@ def main():
     # This loads the model into memory (GPU if available, otherwise CPU)
     print("Loading model... (this may take a minute on first run)")
     llm = LLM(
-        model="facebook/opt-125m",  # Small model perfect for learning
+        model="mistralai/Mistral-7B-Instruct-v0.3",  # Instruction-tuned 7B model
+        max_model_len=8192,  # Reduce to fit in GPU memory
         # Uncomment below if you have GPU memory issues:
         # gpu_memory_utilization=0.7,
     )
@@ -91,29 +89,7 @@ def main():
         print(f"Generated: {generated_text!r}")
         print("-" * 70)
         print()
-    
-    # ========================================
-    # BONUS: Accessing Additional Information
-    # ========================================
-    print("=" * 70)
-    print("ADDITIONAL OUTPUT INFORMATION")
-    print("=" * 70)
-    print()
-    
-    # Let's examine the first output in detail
-    first_output = outputs[0]
-    completion = first_output.outputs[0]
-    
-    print(f"Prompt: {first_output.prompt!r}")
-    print(f"Generated text: {completion.text!r}")
-    print(f"Number of tokens generated: {len(completion.token_ids)}")
-    print(f"Finish reason: {completion.finish_reason}")
-    print(f"Cumulative log probability: {completion.cumulative_logprob:.4f}")
-    print()
-    
-    print("=" * 70)
-    print("✓ Example completed successfully!")
-    print("=" * 70)
+
 
 
 if __name__ == "__main__":
