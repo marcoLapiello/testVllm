@@ -68,6 +68,9 @@ Speculative decoding, prefix caching, compilation options, etc.
 |-----------|------|---------|-------------|
 | `tensor_parallel_size` | int | 1 | Number of GPUs for tensor parallelism |
 | `pipeline_parallel_size` | int | 1 | Number of pipeline stages for pipeline parallelism |
+| `enable_expert_parallel` | bool | False | Enable expert parallelism for Mixture-of-Experts (MoE) models |
+| `expert_placement_strategy` | str | "linear" | Expert placement strategy for MoE: "linear", "round_robin" |
+| `num_redundant_experts` | int | 0 | Number of redundant experts for MoE models (for fault tolerance) |
 | `max_parallel_loading_workers` | int | None | Max parallel workers for model loading |
 | `disable_custom_all_reduce` | bool | False | Disable custom all-reduce kernel, use NCCL |
 | `enforce_eager` | bool | False | Enforce eager execution (disable CUDA graphs) |

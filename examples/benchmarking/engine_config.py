@@ -18,6 +18,26 @@ Date: 2024-12-16
 """
 
 import os
+
+# =============================================================================
+# CRITICAL: Set ROCBLAS_USE_HIPBLASLT=0 BEFORE importing vLLM/PyTorch
+# =============================================================================
+# hipBLASLt on RDNA3 (gfx1100) lacks tuning database and causes:
+# - "Failed validator: GCN_ARCH_NAME" warnings
+# - GPU underutilization (260W vs 330W)
+# - Poor batch performance
+# Setting this to 0 forces stable rocBLAS backend with proper gfx1100 support
+os.environ["ROCBLAS_USE_HIPBLASLT"] = "0"
+# Alternative: Disable tunableop entirely (more aggressive)
+os.environ["PYTORCH_TUNABLEOP_ENABLED"] = "0"
+print("=" * 80)
+print("CRITICAL RDNA3 FIX:")
+print("  ROCBLAS_USE_HIPBLASLT = 0 (force rocBLAS)")
+print("  PYTORCH_TUNABLEOP_ENABLED = 0 (disable auto-tuning)")
+print("This must be set BEFORE importing PyTorch/vLLM to avoid hipBLASLt issues")
+print("=" * 80)
+print()
+
 from typing import Optional, Dict, Any
 from vllm import LLM, SamplingParams
 
@@ -44,20 +64,22 @@ class RDNA3EnvironmentConfig:
         # =================================================================
         
         # Enable AOTriton (Ahead-Of-Time compiled Triton kernels for ROCm)
-        self.TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL: int = 1
+        self.TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL: int = 1  # TESTING: Enable for Flash Attention
         # Options: 0 (disabled), 1 (enabled)
         # RDNA3: Set to 1 - enables precompiled attention kernels
         # This is a PyTorch/ROCm level flag that must be set BEFORE vLLM flags
-        # NOTE: This enables aotriton support at the PyTorch level
+        # NOTE: Testing with Flash Attention to see if performance improves
         
         # =================================================================
         # FLASH ATTENTION CONFIGURATION (Critical for RDNA3)
         # =================================================================
         
-        # Disable standard Triton Flash Attention (not supported on RDNA3)
-        self.VLLM_USE_TRITON_FLASH_ATTN: int = 0
+        # Enable standard Triton Flash Attention for comparison
+        self.VLLM_USE_TRITON_FLASH_ATTN: int = 1  # BATCH TEST: Enabled to compare with baseline
         # Options: 0 (disabled), 1 (enabled)
-        # RDNA3: Set to 0 - standard triton flash attn doesn't work
+        # RDNA3: RDNA3 has custom autotune configs for Flash Attention  
+        # Baseline (DISABLED): 30.96 tok/s with 49.52x concurrency available
+        # Testing if Flash Attention improves batch throughput
         
         # =================================================================
         # AITER (ATTENTION KERNEL TRITON OPS) CONFIGURATION
@@ -71,9 +93,9 @@ class RDNA3EnvironmentConfig:
         # Note: opt-125m works with True because it uses LayerNorm, not RMSNorm
         
         # Enable aiter for Multi-Head Attention
-        self.VLLM_ROCM_USE_AITER_MHA: bool = True
+        self.VLLM_ROCM_USE_AITER_MHA: bool = False  # TEST: Disable to check if MHA aiter causes repetition
         # Options: True, False
-        # RDNA3: Set True for opt-125m (works with MHA enabled)
+        # RDNA3: Set False for RMSNorm models (Qwen3 MoE) for consistency
         
         # Enable paged attention using aiter kernels
         self.VLLM_ROCM_USE_AITER_PAGED_ATTN: bool = False
@@ -89,6 +111,22 @@ class RDNA3EnvironmentConfig:
         self.VLLM_ROCM_USE_TRITON_ROPE: bool = False
         # Options: True, False
         # RDNA3: Try True - may improve RoPE performance
+        
+        # =================================================================
+        # ROCBLAS / HIPBLASLT CONFIGURATION (CRITICAL FOR RDNA3)
+        # =================================================================
+        
+        # Disable hipBLASLt to avoid RDNA3 compatibility issues
+        self.ROCBLAS_USE_HIPBLASLT: int = 0
+        # Options: 0 (disabled), 1 (enabled)
+        # CRITICAL for RDNA3: hipBLASLt lacks gfx1100 tuning database
+        # Issues with default (1):
+        #   - "Failed validator: GCN_ARCH_NAME" warnings
+        #   - Falls back to slow generic GEMM kernels
+        #   - Poor GPU utilization (260W instead of 330W)
+        #   - Low performance (4% GPU busy during batch inference)
+        # Setting to 0 forces stable rocBLAS backend
+        # Expected: Better performance, no warnings, higher GPU utilization
         
         # =================================================================
         # OTHER ROCM-SPECIFIC SETTINGS
@@ -145,6 +183,10 @@ class RDNA3EnvironmentConfig:
         os.environ["VLLM_ROCM_USE_TRITON_ROPE"] = str(self.VLLM_ROCM_USE_TRITON_ROPE).lower()
         print(f"✓ VLLM_ROCM_USE_TRITON_ROPE = {self.VLLM_ROCM_USE_TRITON_ROPE}")
         
+        # ROCBLAS / hipBLASLt Settings
+        os.environ["ROCBLAS_USE_HIPBLASLT"] = str(self.ROCBLAS_USE_HIPBLASLT)
+        print(f"✓ ROCBLAS_USE_HIPBLASLT = {self.ROCBLAS_USE_HIPBLASLT} (Force rocBLAS, avoid hipBLASLt RDNA3 issues)")
+        
         # Other ROCm Settings
         os.environ["VLLM_ROCM_CUSTOM_PAGED_ATTN"] = str(self.VLLM_ROCM_CUSTOM_PAGED_ATTN).lower()
         print(f"✓ VLLM_ROCM_CUSTOM_PAGED_ATTN = {self.VLLM_ROCM_CUSTOM_PAGED_ATTN}")
@@ -184,22 +226,35 @@ class EngineConfig:
         # =====================================================================
         
         # Model identifier or path
-        self.model: str = "/app/models/hub/models--unsloth--Qwen3-4B-GGUF/snapshots/22c9fc8a8c7700b76a1789366280a6a5a1ad1120/Qwen3-4B-Q4_K_M.gguf"
+        self.model: str = "unsloth/gpt-oss-20b-GGUF"
         # Description: HuggingFace model ID OR path to local model OR path to local GGUF file
         # Examples: 
         #   - "meta-llama/Llama-3.2-3B-Instruct"
         #   - "/path/to/local/model"
         #   - "/path/to/model.gguf" (for local GGUF file)
-        #   - Testing: Qwen3-4B Q4_K_M GGUF (4-bit quantized)
-        # RDNA3: Use GGUF format for better quantization performance
-        # Using: Qwen3-4B-Q4_K_M.gguf (4-bit quantized)
+        #   - Testing: GPT-OSS 20B with GGUF Q4_K_M quantization
+        # RDNA3: Testing GPT-OSS 20B (original uses MXFP4 which is CUDA-only)
+        # Using: unsloth/gpt-oss-20b-GGUF with Q4_K_M quantization
+        # Note: Original openai/gpt-oss-20b is MXFP4 (doesn't work on ROCm)
+        # Previous tests: 
+        #   - Qwen3-Coder-30B GGUF Q4_K_M: 98 tok/s single, 31.17 tok/s batch (8 requests)
+        #   - Qwen3-Coder-30B GPTQ-4bit: 137.72 tok/s batch (4.4x faster than GGUF!)
+        #   - Qwen3-8B AutoRound GPTQ: 488.33 tok/s batch (best so far!)
         
         # Tokenizer
-        self.tokenizer: Optional[str] = "Qwen/Qwen3-4B"
+        self.tokenizer: Optional[str] = "unsloth/gpt-oss-20b-GGUF"
         # Description: Tokenizer name or path. If None, uses same as model
         # Example: "meta-llama/Llama-3.2-3B-Instruct"
-        # Note: For GGUF models, you MUST specify a HuggingFace tokenizer
-        # Using Qwen3-4B tokenizer for GGUF model
+        # Note: For GPTQ models, tokenizer is included in the model repo
+        
+        # HuggingFace config path (for GGUF models)
+        self.hf_config_path: Optional[str] = "openai/gpt-oss-20b"
+        # Description: Path to HuggingFace model config (CRITICAL for GGUF)
+        # - For GGUF models, this loads the proper model architecture config
+        # - Use the base model repo (not -GGUF repo)
+        # - Fixes repetition issues with GGUF models (GitHub issue #24025)
+        # - For GPT-OSS: Use openai/gpt-oss-20b as config source
+        # Example: "Qwen/Qwen3-30B-A3B-Instruct-2507"
         
         # Tokenizer mode
         self.tokenizer_mode: str = "auto"
@@ -223,7 +278,8 @@ class EngineConfig:
         self.trust_remote_code: bool = False
         # Description: Allow executing custom Python code from model repository
         # WARNING: Only enable for trusted models
-        # Required for: Some custom architectures (e.g., Phi, Qwen)
+        # Required for: Some custom architectures (e.g., Phi, Qwen, Gemma 3 multimodal)
+        # Note: Gemma 3 multimodal has corrupted preprocessor_config.json in unsloth GGUF repo
         
         # Download directory
         self.download_dir: Optional[str] = None
@@ -235,15 +291,14 @@ class EngineConfig:
         self.load_format: str = "gguf"
         # Options: "auto", "pt", "safetensors", "npcache", "dummy", "tensorizer", "bitsandbytes", "gguf"
         # Description: Model weight loading format
-        # - "auto": Automatically detect format
+        # - "auto": Automatically detect format (use for GPTQ/AWQ)
         # - "gguf": For GGUF quantized models
         # - "pt": PyTorch .bin files
         # - "safetensors": Safetensors format (safer, faster)
-        # - "gguf": GGUF format (RECOMMENDED FOR RDNA3 with quantization)
         # - "tensorizer": Optimized loading with tensorizer
         # - "bitsandbytes": BitsAndBytes quantization
-        # RDNA3 Recommendation: Use "gguf" for quantized models
-        # Currently using: Qwen3-4B-Q4_K_M.gguf
+        # RDNA3: Using "gguf" for GPT-OSS 20B (Q4_K_M quantization)
+        # Testing: GPT-OSS 20B GGUF vs Qwen3 GGUF performance
         
         # Config format
         self.config_format: str = "auto"
@@ -278,12 +333,18 @@ class EngineConfig:
         # RDNA3 (24GB): Try 0.85-0.95 depending on model size
         
         # Maximum model length
-        self.max_model_len: Optional[int] = None
+        self.max_model_len: Optional[int] = 1024
         # Description: Maximum model context length (prompt + output)
+        # - None: Auto-derived from model config
+        # BATCH TEST: Set to 1024 (prompt ~12 tokens + 512 max_tokens = ~524 total)
+        # This allows much higher concurrency than 8192
+        # Previous: 8192 allowed 6.31x concurrency (wasted memory for 512 token responses)
+        # Expected: 1024 should allow ~50x concurrency, perfect for 8 concurrent requests
         # - None: Auto-derived from model config
         # - Specify value: Override model's maximum
         # Example: 4096, 8192, 16384
         # Note: Higher values require more memory
+        # RDNA3 24GB: Limited to ~8K-16K for 30B Q4 models due to KV cache requirements
         
         # Block size
         self.block_size: int = 16
@@ -322,13 +383,15 @@ class EngineConfig:
         # - Disabling caps to model's max context length
         
         # KV cache data type
-        self.kv_cache_dtype: str = "auto"
+        self.kv_cache_dtype: str = "fp8_e4m3"
         # Options: "auto", "fp8", "fp8_e5m2", "fp8_e4m3"
         # Description: KV cache quantization data type
-        # - "auto": Use same as model dtype
-        # - "fp8": FP8 quantization (saves memory, slight quality loss)
-        # - Lower precision = more memory savings
-        # RDNA3: "auto" or "fp8" if memory constrained
+        # - "auto": Use same as model dtype (currently: FP16/BF16 = ~2.34 GiB)
+        # - "fp8_e4m3": FP8 with 4-bit exponent, 3-bit mantissa (RECOMMENDED for memory savings)
+        # - "fp8_e5m2": FP8 with 5-bit exponent, 2-bit mantissa (better range)
+        # - Lower precision = 50% memory savings vs FP16
+        # RDNA3: Testing "fp8_e4m3" to reduce KV cache from 2.34 GiB
+        # Expected: ~1.17 GiB KV cache, minimal quality loss, potential speed improvement
         
         # =====================================================================
         # CATEGORY 3: PERFORMANCE & PARALLELISM
@@ -397,6 +460,31 @@ class EngineConfig:
         # - Higher: Faster model loading, more CPU/memory
         # RDNA3: Leave as None
         
+        # Enable expert parallelism (for MoE models)
+        self.enable_expert_parallel: bool = False
+        # Description: Enable expert parallelism for Mixture-of-Experts models
+        # - False: Standard execution (default)
+        # - True: Parallelize expert execution across GPUs
+        # - Requires multiple GPUs or tensor parallelism
+        # RDNA3 (single GPU): Keep False, but may improve throughput if using multiple GPUs
+        
+        # Expert placement strategy (for MoE models)
+        self.expert_placement_strategy: str = "linear"
+        # Options: "linear", "round_robin"
+        # Description: How to place experts across devices in MoE models
+        # - "linear": Place experts sequentially on devices
+        # - "round_robin": Distribute experts evenly
+        # - Only relevant when enable_expert_parallel=True
+        # RDNA3: Keep "linear" unless using multiple GPUs
+        
+        # Number of redundant experts (for MoE models)
+        self.num_redundant_experts: int = 0
+        # Description: Number of redundant experts for MoE models
+        # - 0: No redundancy (default)
+        # - Higher: More fault tolerance, more memory
+        # - Advanced feature for distributed MoE
+        # RDNA3: Keep 0
+        
         # Disable custom all-reduce
         self.disable_custom_all_reduce: bool = False
         # Description: Disable custom all-reduce kernel, use NCCL
@@ -411,7 +499,7 @@ class EngineConfig:
         # - False: Use CUDA graphs (faster, recommended)
         # - True: Use eager mode (debugging, compatibility)
         # - CUDA graphs = optimization for repeated operations
-        # RDNA3: Keep False now that aiter is disabled (CUDA graphs work fine)
+        # TESTING RESULT: CUDA graphs provide 2.4x speedup (98 vs 41 tok/s) - KEEP ENABLED!
         
         # Max context length to capture
         self.max_context_len_to_capture: Optional[int] = None
@@ -426,9 +514,18 @@ class EngineConfig:
         
         # Quantization method
         self.quantization: Optional[str] = None
-        # Options: None, "awq", "gptq", "squeezellm", "fp8", "gguf", "compressed-tensors", "bitsandbytes"
+        # Options: None, "awq", "gptq", "gptq_marlin", "gptq_bitblas", "gptq_marlin_24", 
+        #          "squeezellm", "fp8", "gguf", "compressed-tensors", "bitsandbytes"
         # Description: Quantization method for model weights
-        # - None: No quantization (full precision)
+        # - None: Auto-detect from model config (then kernel selected by env var or default)
+        # - "gptq": Default GPTQ (buggy, shows warning)
+        # - "gptq_marlin": Optimized Marlin GPTQ kernel (RECOMMENDED for GPTQ models)
+        # - "gptq_bitblas": BitBLAS GPTQ kernel
+        # - "awq": Activation-aware Weight Quantization
+        # - "gguf": GGUF format (auto-detected for .gguf files)
+        # RDNA3: Cannot override to gptq_marlin due to validation error
+        # Use environment variable VLLM_GPTQ_MARLIN=1 or model must be saved as marlin format
+        # Current: Using default (auto-detect), getting buggy gptq_gemm kernel warning
         # - "awq": Activation-aware Weight Quantization
         # - "gptq": GPTQ quantization
         # - "gguf": GGUF format (RECOMMENDED for RDNA3)
@@ -537,6 +634,8 @@ class EngineConfig:
             config["model"] = self.model
         if self.tokenizer is not None:
             config["tokenizer"] = self.tokenizer
+        if self.hf_config_path is not None:
+            config["hf_config_path"] = self.hf_config_path
         if self.tokenizer_mode != "auto":
             config["tokenizer_mode"] = self.tokenizer_mode
         if self.tokenizer_revision is not None:
@@ -588,6 +687,12 @@ class EngineConfig:
             config["num_scheduler_steps"] = self.num_scheduler_steps
         if self.max_parallel_loading_workers is not None:
             config["max_parallel_loading_workers"] = self.max_parallel_loading_workers
+        if self.enable_expert_parallel:
+            config["enable_expert_parallel"] = self.enable_expert_parallel
+        if self.expert_placement_strategy != "linear":
+            config["expert_placement_strategy"] = self.expert_placement_strategy
+        if self.num_redundant_experts > 0:
+            config["num_redundant_experts"] = self.num_redundant_experts
         if self.disable_custom_all_reduce:
             config["disable_custom_all_reduce"] = self.disable_custom_all_reduce
         if self.enforce_eager:
@@ -636,6 +741,7 @@ class EngineConfig:
         print("-" * 80)
         print(f"  model                : {self.model}")
         print(f"  tokenizer            : {self.tokenizer}")
+        print(f"  hf_config_path       : {self.hf_config_path}")
         print(f"  tokenizer_mode       : {self.tokenizer_mode}")
         print(f"  tokenizer_revision   : {self.tokenizer_revision}")
         print(f"  revision             : {self.revision}")
@@ -669,6 +775,9 @@ class EngineConfig:
         print(f"  enable_chunked_prefill       : {self.enable_chunked_prefill}")
         print(f"  num_scheduler_steps          : {self.num_scheduler_steps}")
         print(f"  max_parallel_loading_workers : {self.max_parallel_loading_workers}")
+        print(f"  enable_expert_parallel       : {self.enable_expert_parallel} (MoE)")
+        print(f"  expert_placement_strategy    : {self.expert_placement_strategy} (MoE)")
+        print(f"  num_redundant_experts        : {self.num_redundant_experts} (MoE)")
         print(f"  disable_custom_all_reduce    : {self.disable_custom_all_reduce}")
         print(f"  enforce_eager                : {self.enforce_eager}")
         print(f"  max_context_len_to_capture   : {self.max_context_len_to_capture}")
@@ -758,63 +867,127 @@ def main():
         sampling_params = SamplingParams(
             temperature=0.8,
             top_p=0.95,
-            max_tokens=4096,  # Long-form response limit
+            max_tokens=512,  # Shorter for batch testing
         )
         
-        # Single longer test prompt to measure prefill + decode performance
-        test_prompt = """Write a detailed technical explanation of how large language models work, including the transformer architecture, attention mechanisms, and the training process. Be thorough and educational."""
+        # Batch test prompts - testing Flash Attention benefits
+        # Flash Attention shows improvements with concurrent requests
+        batch_prompts = [
+            "Explain how neural networks learn through backpropagation in simple terms.",
+            "What are the key differences between supervised and unsupervised learning?",
+            "Describe the architecture of a convolutional neural network (CNN).",
+            "How does gradient descent optimization work in machine learning?",
+            "Explain the concept of overfitting and how to prevent it.",
+            "What is transfer learning and why is it useful in deep learning?",
+            "Describe how attention mechanisms work in transformer models.",
+            "What are the main challenges in training large language models?",
+        ]
+        
+        batch_size = len(batch_prompts)
         
         print("Sampling Parameters:")
         print(f"  - Temperature: {sampling_params.temperature}")
         print(f"  - Top-p: {sampling_params.top_p}")
         print(f"  - Max tokens: {sampling_params.max_tokens}")
-        print(f"  - Concurrency: Single prompt (realistic single-user scenario)")
+        print(f"  - Batch size: {batch_size} concurrent requests")
         print()
         
-        print("Test prompt:")
-        print(f"  {test_prompt!r}")
+        print("Test Configuration:")
+        print(f"  - Flash Attention: {'DISABLED' if os.environ.get('VLLM_USE_TRITON_FLASH_ATTN') == '0' else 'ENABLED'}")
+        print(f"  - Testing: Batch throughput with {batch_size} requests")
         print()
         
-        print("Generating (prefill + decode performance test)...")
+        print("Batch prompts:")
+        for i, prompt in enumerate(batch_prompts, 1):
+            print(f"  {i}. {prompt}")
+        print()
+        
+        print(f"Generating {batch_size} responses concurrently...")
+        print("(This tests Flash Attention's ability to handle multiple requests)")
         print()
         
         import time
         start_time = time.time()
         
-        # Generate - single prompt for realistic benchmarking
-        outputs = llm.generate([test_prompt], sampling_params)
+        # Generate - batch inference to test Flash Attention benefits
+        outputs = llm.generate(batch_prompts, sampling_params)
         
         end_time = time.time()
         total_time = end_time - start_time
         
         # Display results
         print("=" * 80)
-        print("RESULTS")
+        print("BATCH INFERENCE RESULTS")
         print("=" * 80)
         print()
         
-        output = outputs[0]
-        prompt = output.prompt
-        generated_text = output.outputs[0].text
-        num_prompt_tokens = len(output.prompt_token_ids)
-        num_generated_tokens = len(output.outputs[0].token_ids)
+        # Calculate aggregate metrics
+        total_prompt_tokens = sum(len(output.prompt_token_ids) for output in outputs)
+        total_generated_tokens = sum(len(output.outputs[0].token_ids) for output in outputs)
         
-        print(f"Prompt: {prompt!r}")
-        print()
-        print(f"Generated text:")
-        print("-" * 80)
-        print(generated_text)
-        print("-" * 80)
-        print()
-        
-        # Performance metrics
-        print("PERFORMANCE METRICS:")
+        print(f"BATCH PERFORMANCE METRICS:")
         print(f"  Total time: {total_time:.2f} seconds")
-        print(f"  Prompt tokens: {num_prompt_tokens}")
-        print(f"  Generated tokens: {num_generated_tokens}")
-        print(f"  Tokens/second (total): {num_generated_tokens / total_time:.2f}")
+        print(f"  Batch size: {batch_size} requests")
+        print(f"  Total prompt tokens: {total_prompt_tokens}")
+        print(f"  Total generated tokens: {total_generated_tokens}")
+        print(f"  Overall throughput: {total_generated_tokens / total_time:.2f} tokens/second")
+        print(f"  Throughput per request: {(total_generated_tokens / total_time) / batch_size:.2f} tokens/second")
         print()
         
+        # Show individual outputs (abbreviated)
+        print("INDIVIDUAL OUTPUTS (first 100 chars each):")
+        print("-" * 80)
+        for i, output in enumerate(outputs, 1):
+            prompt = output.prompt
+            generated_text = output.outputs[0].text
+            num_tokens = len(output.outputs[0].token_ids)
+            
+            print(f"\n{i}. Prompt: {prompt[:80]}...")
+            print(f"   Tokens: {num_tokens}")
+            print(f"   Response: {generated_text[:100]}...")
+        print("-" * 80)
+        print()
+        
+        # vLLM internal metrics (if available from first output)
+        if hasattr(outputs[0], 'metrics') and outputs[0].metrics is not None:
+            metrics = outputs[0].metrics
+            print("VLLM INTERNAL METRICS (first request):")
+            
+            # Time to First Token (TTFT)
+            if metrics.first_scheduled_time is not None and metrics.first_token_time is not None:
+                ttft = metrics.first_token_time - metrics.first_scheduled_time
+                print(f"  Time to First Token (TTFT): {ttft:.4f} seconds ({ttft*1000:.2f} ms)")
+            
+            # Time per Output Token (TPOT)
+            first_output_tokens = len(outputs[0].outputs[0].token_ids)
+            if metrics.first_token_time is not None and metrics.finished_time is not None:
+                decode_time = metrics.finished_time - metrics.first_token_time
+                if first_output_tokens > 1:
+                    tpot = decode_time / (first_output_tokens - 1)  # Exclude first token
+                    print(f"  Time per Output Token (TPOT): {tpot:.4f} seconds ({tpot*1000:.2f} ms/token)")
+                    print(f"  Decode throughput: {(first_output_tokens - 1) / decode_time:.2f} tokens/second")
+            
+            # Total generation time (from vLLM perspective)
+            if metrics.first_scheduled_time is not None and metrics.finished_time is not None:
+                total_vllm_time = metrics.finished_time - metrics.first_scheduled_time
+                print(f"  Total vLLM time: {total_vllm_time:.4f} seconds")
+                throughput = first_output_tokens / total_vllm_time
+                print(f"  vLLM throughput: {throughput:.2f} tokens/second")
+            
+            # Queue time
+            if metrics.time_in_queue is not None:
+                print(f"  Time in queue: {metrics.time_in_queue:.4f} seconds")
+            
+            # Model execution times
+            if metrics.model_forward_time is not None:
+                print(f"  Model forward time: {metrics.model_forward_time:.4f} seconds")
+            if metrics.model_execute_time is not None:
+                print(f"  Model execute time: {metrics.model_execute_time:.4f} seconds")
+            
+            print()
+        else:
+            print("Note: vLLM internal metrics not available")
+            print()        
         print("=" * 80)
         print("✓ TEST COMPLETED SUCCESSFULLY!")
         print("=" * 80)
@@ -824,6 +997,10 @@ def main():
         print("  2. Test with your own models (including GGUF)")
         print("  3. Adjust RDNA3 environment variables for optimization")
         print("  4. Run benchmarks with different configurations")
+        print()
+        print("Note: You may see a 'destroy_process_group() not called' warning after exit.")
+        print("      This is a known cosmetic issue in vLLM V1 engine and can be safely ignored.")
+        print("      It does not indicate memory leaks or incorrect behavior.")
         print()
         
     except Exception as e:
@@ -846,6 +1023,24 @@ def main():
         
         # Re-raise for debugging
         raise
+    finally:
+        # Cleanup: Properly destroy distributed process groups to avoid resource leaks
+        # This addresses the warning: "destroy_process_group() was not called before program exit"
+        try:
+            if 'llm' in locals():
+                # Try to shutdown the engine's executor (which handles worker processes)
+                if hasattr(llm, 'llm_engine') and hasattr(llm.llm_engine, 'model_executor'):
+                    executor = llm.llm_engine.model_executor
+                    if hasattr(executor, 'shutdown'):
+                        executor.shutdown()
+                        print("\n✓ Cleaned up worker processes and distributed groups")
+                
+                # Delete the LLM instance
+                del llm
+                
+        except Exception as cleanup_error:
+            # Don't fail if cleanup has issues - the warning is harmless
+            print(f"\nNote: Cleanup had minor issues (safe to ignore): {cleanup_error}")
 
 
 if __name__ == "__main__":
