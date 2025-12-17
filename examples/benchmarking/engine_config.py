@@ -226,34 +226,37 @@ class EngineConfig:
         # =====================================================================
         
         # Model identifier or path
-        self.model: str = "unsloth/gpt-oss-20b-GGUF"
+        self.model: str = "/app/models/hub/models--Qwen--Qwen3-8B/snapshots/b968826d9c46dd6066d109eabc6255188de91218"
         # Description: HuggingFace model ID OR path to local model OR path to local GGUF file
         # Examples: 
         #   - "meta-llama/Llama-3.2-3B-Instruct"
         #   - "/path/to/local/model"
         #   - "/path/to/model.gguf" (for local GGUF file)
-        #   - Testing: GPT-OSS 20B with GGUF Q4_K_M quantization
-        # RDNA3: Testing GPT-OSS 20B (original uses MXFP4 which is CUDA-only)
-        # Using: unsloth/gpt-oss-20b-GGUF with Q4_K_M quantization
-        # Note: Original openai/gpt-oss-20b is MXFP4 (doesn't work on ROCm)
+        # RDNA3: Testing BASE Qwen3-8B (Full Precision BF16)
+        # Key Features:
+        #   - Full precision BF16 model (~16GB)
+        #   - No quantization (highest quality)
+        #   - 8B parameters
+        #   - Works with vLLM 0.11.1
+        # Comparison with GPTQ 4-bit:
+        #   - GPTQ 4-bit: 488.33 tok/s batch, ~4GB memory
+        #   - Base BF16: Higher quality, slower speed, ~16GB memory
         # Previous tests: 
-        #   - Qwen3-Coder-30B GGUF Q4_K_M: 98 tok/s single, 31.17 tok/s batch (8 requests)
-        #   - Qwen3-Coder-30B GPTQ-4bit: 137.72 tok/s batch (4.4x faster than GGUF!)
-        #   - Qwen3-8B AutoRound GPTQ: 488.33 tok/s batch (best so far!)
+        #   - Qwen3-8B AutoRound GPTQ: 488.33 tok/s batch (quantized)
         
         # Tokenizer
-        self.tokenizer: Optional[str] = "unsloth/gpt-oss-20b-GGUF"
+        self.tokenizer: Optional[str] = None
         # Description: Tokenizer name or path. If None, uses same as model
         # Example: "meta-llama/Llama-3.2-3B-Instruct"
         # Note: For GPTQ models, tokenizer is included in the model repo
         
         # HuggingFace config path (for GGUF models)
-        self.hf_config_path: Optional[str] = "openai/gpt-oss-20b"
+        self.hf_config_path: Optional[str] = None
         # Description: Path to HuggingFace model config (CRITICAL for GGUF)
         # - For GGUF models, this loads the proper model architecture config
         # - Use the base model repo (not -GGUF repo)
         # - Fixes repetition issues with GGUF models (GitHub issue #24025)
-        # - For GPT-OSS: Use openai/gpt-oss-20b as config source
+        # - For Ministral 3 GGUF: Use the BF16 repo for proper config
         # Example: "Qwen/Qwen3-30B-A3B-Instruct-2507"
         
         # Tokenizer mode
@@ -275,11 +278,11 @@ class EngineConfig:
         # Example: "main", "v1.0", specific commit hash
         
         # Trust remote code
-        self.trust_remote_code: bool = False
+        self.trust_remote_code: bool = True
         # Description: Allow executing custom Python code from model repository
         # WARNING: Only enable for trusted models
-        # Required for: Some custom architectures (e.g., Phi, Qwen, Gemma 3 multimodal)
-        # Note: Gemma 3 multimodal has corrupted preprocessor_config.json in unsloth GGUF repo
+        # Required for: Some custom architectures (e.g., Phi, Qwen, Gemma 3 multimodal, Ministral 3)
+        # Note: Ministral 3 requires this for the custom model architecture
         
         # Download directory
         self.download_dir: Optional[str] = None
@@ -288,17 +291,16 @@ class EngineConfig:
         # Example: "/app/models"
         
         # Load format
-        self.load_format: str = "gguf"
+        self.load_format: str = "auto"
         # Options: "auto", "pt", "safetensors", "npcache", "dummy", "tensorizer", "bitsandbytes", "gguf"
         # Description: Model weight loading format
-        # - "auto": Automatically detect format (use for GPTQ/AWQ)
-        # - "gguf": For GGUF quantized models
+        # - "auto": Automatically detect format (use for GPTQ/AWQ and BF16 safetensors)
+        # - "gguf": For GGUF quantized models (REQUIRED for .gguf files)
         # - "pt": PyTorch .bin files
         # - "safetensors": Safetensors format (safer, faster)
         # - "tensorizer": Optimized loading with tensorizer
         # - "bitsandbytes": BitsAndBytes quantization
-        # RDNA3: Using "gguf" for GPT-OSS 20B (Q4_K_M quantization)
-        # Testing: GPT-OSS 20B GGUF vs Qwen3 GGUF performance
+        # RDNA3: Using "auto" for GPTQ models (auto-detects safetensors format)
         
         # Config format
         self.config_format: str = "auto"
@@ -314,23 +316,23 @@ class EngineConfig:
         self.dtype: str = "auto"
         # Options: "auto", "float16", "bfloat16", "float32"
         # Description: Model weight and activation data type
-        # - "auto": Automatically select based on model config
+        # - "auto": Automatically select based on model config (recommended for GGUF)
         # - "float16": FP16 (good memory/speed balance)
         # - "bfloat16": BF16 (better numerical stability)
         # - "float32": FP32 (highest precision, most memory)
-        # RDNA3 Recommendation: "float16" or "bfloat16"
+        # RDNA3 Recommendation: "auto" for GGUF models (detects BF16 from file)
         
         # =====================================================================
         # CATEGORY 2: MEMORY MANAGEMENT
         # =====================================================================
         
         # GPU memory utilization
-        self.gpu_memory_utilization: float = 0.90
+        self.gpu_memory_utilization: float = 0.95
         # Range: 0.0 - 1.0
         # Description: Fraction of GPU memory to use for model weights
         # - Higher values: More KV cache, more sequences
         # - Lower values: More headroom, more stable
-        # RDNA3 (24GB): Try 0.85-0.95 depending on model size
+        # RDNA3 (24GB): Reduced to 0.90 to avoid OOM with FP8 KV cache (was 0.98)
         
         # Maximum model length
         self.max_model_len: Optional[int] = 1024
@@ -420,7 +422,7 @@ class EngineConfig:
         # - Higher = more throughput, more memory
         # - Lower = less memory, lower throughput
         # - Typical range: 128-512
-        # RDNA3: Start with 256, adjust based on model size
+        # RDNA3: Reduced to 64 to avoid OOM with FP8 KV cache (was 256)
         
         # Maximum number of batched tokens
         self.max_num_batched_tokens: Optional[int] = None
@@ -874,15 +876,16 @@ def main():
         # Flash Attention shows improvements with concurrent requests
         batch_prompts = [
             "Explain how neural networks learn through backpropagation in simple terms.",
-            "What are the key differences between supervised and unsupervised learning?",
+        ]
+        
+        """What are the key differences between supervised and unsupervised learning?",
             "Describe the architecture of a convolutional neural network (CNN).",
             "How does gradient descent optimization work in machine learning?",
             "Explain the concept of overfitting and how to prevent it.",
             "What is transfer learning and why is it useful in deep learning?",
             "Describe how attention mechanisms work in transformer models.",
-            "What are the main challenges in training large language models?",
-        ]
-        
+            "What are the main challenges in training large language models?","""
+
         batch_size = len(batch_prompts)
         
         print("Sampling Parameters:")
