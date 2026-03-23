@@ -170,6 +170,88 @@ for out in outputs:
 
 ---
 
+## Step 8 — Serving a Model via the OpenAI-Compatible API
+
+vLLM exposes an OpenAI-compatible HTTP server via the `vllm serve` command. Run it in a
+dedicated terminal — it stays in the foreground printing logs.
+
+Set `HF_HOME` so vLLM resolves Hugging Face model IDs to the local cache without
+downloading anything.
+
+### Serving a native HF model (BF16)
+
+```bash
+source ~/.venvs/vllm-rocm/bin/activate
+export HF_HOME=/home/marcolap/Schreibtisch/testVllm/models
+
+vllm serve Qwen/Qwen3-4B \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --dtype bfloat16 \
+  --api-key local
+```
+
+Wait for:
+```
+INFO:     Application startup complete.
+```
+
+### Serving a GGUF model
+
+GGUF models require `--dtype float16` (not `bfloat16`) and an explicit `--tokenizer`
+pointing to the base model (avoids slow/buggy tokenizer conversion from the GGUF file).
+
+```bash
+source ~/.venvs/vllm-rocm/bin/activate
+export HF_HOME=/home/marcolap/Schreibtisch/testVllm/models
+
+vllm serve /home/marcolap/Schreibtisch/testVllm/models/hub/models--unsloth--Qwen3-4B-GGUF/snapshots/22c9fc8a8c7700b76a1789366280a6a5a1ad1120/Qwen3-4B-Q4_K_M.gguf \
+  --tokenizer Qwen/Qwen3-4B \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --dtype float16 \
+  --api-key local
+```
+
+### Testing the server
+
+In a second terminal, check the model list:
+
+```bash
+curl -s http://localhost:8000/v1/models \
+  -H "Authorization: Bearer local" | python3 -m json.tool
+```
+
+Send a chat request (the `model` field must match exactly what `/v1/models` returns):
+
+```bash
+curl -s http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer local" \
+  -d '{
+    "model": "Qwen/Qwen3-4B",
+    "messages": [{"role": "user", "content": "What is the capital of France?"}],
+    "temperature": 0.7
+  }' | python3 -m json.tool
+```
+
+**Note on Qwen3 thinking mode:** Qwen3 models emit a `<think>` reasoning block by
+default. To disable it, add `"chat_template_kwargs": {"enable_thinking": false}` to the
+request body.
+
+### Key flags reference
+
+| Flag | Description |
+|---|---|
+| `--dtype bfloat16` | Use for native HF models on RDNA3 |
+| `--dtype float16` | Required for GGUF models |
+| `--tokenizer <hf-id>` | Required for GGUF — use the base model HF ID |
+| `--api-key <token>` | Static bearer token clients must send |
+| `--max-model-len <N>` | Cap context length if vLLM errors on startup due to VRAM |
+| `--kv-cache-dtype fp8` | Halve KV cache VRAM usage (saves memory, no throughput gain on RDNA3) |
+
+---
+
 ## Updating vLLM
 
 To update to the latest vLLM main branch:
