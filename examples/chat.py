@@ -20,7 +20,7 @@ while True:
         messages=history,
         stream=True,
         temperature=0.7,
-        max_tokens=4096,
+        max_tokens=32768,
     )
 
     reply = ""
