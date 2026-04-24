@@ -20,10 +20,12 @@ HIP_VISIBLE_DEVICES=0,1,2,3 python -m vllm.entrypoints.openai.api_server \
   --served-model-name Qwen3.5-4B \
   --tensor-parallel-size 4 \
   --dtype bfloat16 \
-  --max-model-len 32768 \
-  --gpu-memory-utilization 0.90 \
+  --max-model-len 131072 \
+  --gpu-memory-utilization 0.95 \
   --trust-remote-code \
-  --compilation-config '{"cudagraph_capture_sizes": [1, 2, 4, 8, 16, 32]}' \
+  --compilation-config '{"cudagraph_capture_sizes": [1, 2]}' \
+  --enable-auto-tool-choice \
+  --tool-call-parser qwen3_coder \
   --host 0.0.0.0 \
   --port 8000
 ```
@@ -39,13 +41,63 @@ HIP_VISIBLE_DEVICES=0,1,2,3 python -m vllm.entrypoints.openai.api_server \
   --tensor-parallel-size 4 \
   --quantization gptq \
   --dtype float16 \
+  --max-parallel-loading-workers 1 \
   --max-model-len 131072 \
-  --gpu-memory-utilization 0.90 \
+  --gpu-memory-utilization 0.95 \
   --trust-remote-code \
-  --compilation-config '{"cudagraph_capture_sizes": [1, 2, 4]}' \
+  --compilation-config '{"cudagraph_capture_sizes": [1, 2]}' \
+  --reasoning-parser qwen3 \
+  --enable-auto-tool-choice \
+  --tool-call-parser qwen3_coder \
   --host 0.0.0.0 \
   --port 8000
 ```
+### Qwen3.5-27B-bf16 — TP=4, 131K context
+
+```bash
+source ~/.venvs/vllm-rocm/bin/activate
+
+HIP_VISIBLE_DEVICES=0,1,2,3 python -m vllm.entrypoints.openai.api_server \
+  --model /home/marcolap/Schreibtisch/testVllm/models/hub/models--Qwen--Qwen3.5-27B/snapshots/b7ca741b86de18df552fd2cc952861e04621a4bd \
+  --served-model-name Qwen3.5-27B \
+  --tensor-parallel-size 4 \
+  --dtype bfloat16 \
+  --max-parallel-loading-workers 1 \
+  --max-num-seqs 16 \
+  --max-model-len 131072 \
+  --gpu-memory-utilization 0.95 \
+  --trust-remote-code \
+  --compilation-config '{"cudagraph_capture_sizes": [1, 2]}' \
+  --reasoning-parser qwen3 \
+  --enable-auto-tool-choice \
+  --tool-call-parser qwen3_coder \
+  --host 0.0.0.0 \
+  --port 8000
+```
+### Qwen3.5-27B-GPTQ-4Bit — TP=4, 131K context
+
+```bash
+source ~/.venvs/vllm-rocm/bin/activate
+
+HIP_VISIBLE_DEVICES=0,1,2,3 python -m vllm.entrypoints.openai.api_server \
+  --model /home/marcolap/Schreibtisch/testVllm/models/hub/models--groxaxo--Qwen3.6-27B-GPTQ-Pro-4bit/snapshots/62b96ffbca486698719ec67f7f414251ad2347ea \
+  --served-model-name Qwen3.5-27B-GPTQ-4Bit \
+  --tensor-parallel-size 4 \
+  --quantization gptq \
+  --dtype float16 \
+  --max-parallel-loading-workers 1 \
+  --max-num-seqs 16 \
+  --max-model-len 131072 \
+  --gpu-memory-utilization 0.95 \
+  --trust-remote-code \
+  --compilation-config '{"cudagraph_capture_sizes": [1, 2]}' \
+  --reasoning-parser qwen3 \
+  --enable-auto-tool-choice \
+  --tool-call-parser qwen3_coder \
+  --host 0.0.0.0 \
+  --port 8000
+```
+
 
 > For safer operation with 62 GB RAM, prefer `--max-model-len 32768` and `--gpu-memory-utilization 0.90`. See RAM constraints below.
 
