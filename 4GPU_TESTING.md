@@ -102,6 +102,34 @@ VLLM_CPU_KVCACHE_SPACE=8 VLLM_MM_INPUT_CACHE_GIB=2 HIP_VISIBLE_DEVICES=0,1,2,3 p
   --port 8000
 ```
 
+### Qwen3.6-35B-GPTQ-4Bit — TP=4, 131K context
+
+```bash
+source ~/.venvs/vllm-rocm/bin/activate
+
+VLLM_CPU_KVCACHE_SPACE=8 HIP_VISIBLE_DEVICES=0,1,2,3 python -m vllm.entrypoints.openai.api_server \
+  --model /home/marcolap/Schreibtisch/testVllm/models/hub/models--btbtyler09--Qwen3.6-35B-A3B-GPTQ-4bit/snapshots/9ff71f0571c7150ece4dd8ab4abc802a0ac7223a \
+  --served-model-name Qwen3.6-35B-GPTQ-4Bit \
+  --tensor-parallel-size 4 \
+  --quantization gptq \
+  --dtype float16 \
+  --max-parallel-loading-workers 1 \
+  --enable-prefix-caching \
+  --mamba-cache-mode align \
+  --mamba-block-size 8 \
+  --enable-chunked-prefill \
+  --max-num-seqs 32 \
+  --max-model-len 131072 \
+  --gpu-memory-utilization 0.95 \
+  --trust-remote-code \
+  --compilation-config '{"cudagraph_capture_sizes": [1, 2, 4]}' \
+  --reasoning-parser qwen3 \
+  --enable-auto-tool-choice \
+  --tool-call-parser qwen3_coder \
+  --host 0.0.0.0 \
+  --port 8000
+```
+
 
 > For safer operation with 62 GB RAM, prefer `--max-model-len 32768` and `--gpu-memory-utilization 0.90`. See RAM constraints below.
 
