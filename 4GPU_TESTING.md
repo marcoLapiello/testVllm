@@ -15,7 +15,7 @@
 ```bash
 source ~/.venvs/vllm-rocm/bin/activate
 
-HIP_VISIBLE_DEVICES=0,1,2,3 python -m vllm.entrypoints.openai.api_server \
+VLLM_CPU_KVCACHE_SPACE=16 VLLM_MM_INPUT_CACHE_GIB=2 HIP_VISIBLE_DEVICES=0,1,2,3 python -m vllm.entrypoints.openai.api_server \
   --model /home/marcolap/Schreibtisch/testVllm/models/hub/models--Qwen--Qwen3.5-4B/snapshots/851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a \
   --served-model-name Qwen3.5-4B \
   --tensor-parallel-size 4 \
@@ -35,7 +35,7 @@ HIP_VISIBLE_DEVICES=0,1,2,3 python -m vllm.entrypoints.openai.api_server \
 ```bash
 source ~/.venvs/vllm-rocm/bin/activate
 
-HIP_VISIBLE_DEVICES=0,1,2,3 python -m vllm.entrypoints.openai.api_server \
+VLLM_CPU_KVCACHE_SPACE=16 VLLM_MM_INPUT_CACHE_GIB=2 HIP_VISIBLE_DEVICES=0,1,2,3 python -m vllm.entrypoints.openai.api_server \
   --model /home/marcolap/Schreibtisch/testVllm/models/hub/models--Qwen--Qwen3.5-35B-A3B-GPTQ-Int4/snapshots/33f4e5e615e1f29a7b218906555ea6fe2d09c741 \
   --served-model-name Qwen3.5-35B-GPTQ \
   --tensor-parallel-size 4 \
@@ -57,7 +57,7 @@ HIP_VISIBLE_DEVICES=0,1,2,3 python -m vllm.entrypoints.openai.api_server \
 ```bash
 source ~/.venvs/vllm-rocm/bin/activate
 
-HIP_VISIBLE_DEVICES=0,1,2,3 python -m vllm.entrypoints.openai.api_server \
+VLLM_CPU_KVCACHE_SPACE=16 VLLM_MM_INPUT_CACHE_GIB=2 HIP_VISIBLE_DEVICES=0,1,2,3 python -m vllm.entrypoints.openai.api_server \
   --model /home/marcolap/Schreibtisch/testVllm/models/hub/models--Qwen--Qwen3.5-27B/snapshots/b7ca741b86de18df552fd2cc952861e04621a4bd \
   --served-model-name Qwen3.5-27B \
   --tensor-parallel-size 4 \
@@ -74,23 +74,27 @@ HIP_VISIBLE_DEVICES=0,1,2,3 python -m vllm.entrypoints.openai.api_server \
   --host 0.0.0.0 \
   --port 8000
 ```
-### Qwen3.5-27B-GPTQ-4Bit — TP=4, 131K context
+### Qwen3.6-27B-GPTQ-4Bit — TP=4, 131K context
 
 ```bash
 source ~/.venvs/vllm-rocm/bin/activate
 
-HIP_VISIBLE_DEVICES=0,1,2,3 python -m vllm.entrypoints.openai.api_server \
+VLLM_CPU_KVCACHE_SPACE=8 VLLM_MM_INPUT_CACHE_GIB=2 HIP_VISIBLE_DEVICES=0,1,2,3 python -m vllm.entrypoints.openai.api_server \
   --model /home/marcolap/Schreibtisch/testVllm/models/hub/models--groxaxo--Qwen3.6-27B-GPTQ-Pro-4bit/snapshots/62b96ffbca486698719ec67f7f414251ad2347ea \
-  --served-model-name Qwen3.5-27B-GPTQ-4Bit \
+  --served-model-name Qwen3.6-27B-GPTQ-4Bit \
   --tensor-parallel-size 4 \
   --quantization gptq \
   --dtype float16 \
   --max-parallel-loading-workers 1 \
-  --max-num-seqs 16 \
+  --enable-prefix-caching \
+  --mamba-cache-mode align \
+  --mamba-block-size 8 \
+  --enable-chunked-prefill \
+  --max-num-seqs 32 \
   --max-model-len 131072 \
   --gpu-memory-utilization 0.95 \
   --trust-remote-code \
-  --compilation-config '{"cudagraph_capture_sizes": [1, 2]}' \
+  --compilation-config '{"cudagraph_capture_sizes": [1, 2, 4]}' \
   --reasoning-parser qwen3 \
   --enable-auto-tool-choice \
   --tool-call-parser qwen3_coder \
